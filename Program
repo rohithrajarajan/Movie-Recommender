@@ -1,0 +1,105 @@
+import pandas as pd
+import pickle
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import os
+
+DATASET_PATH = '/content/Tamil_movies_dataset.csv'  
+MODEL_PATH = 'movie_recommender_model.pkl'
+TFIDF_PATH = 'tfidf_vectorizer.pkl'
+
+def train_model(dataset_path):
+    print("Training the model...")
+    movies = pd.read_csv(dataset_path)
+    
+    if not {'MovieName', 'Actor', 'Genre'}.issubset(movies.columns):
+        raise ValueError("Dataset must contain 'MovieName', 'Actor', and 'Genre' columns.")
+    
+    movies.to_pickle('movies.pkl')
+    
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(movies['MovieName'])
+    
+    cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+    
+    with open(MODEL_PATH, 'wb') as model_file:
+        pickle.dump(cosine_sim, model_file)
+    with open(TFIDF_PATH, 'wb') as tfidf_file:
+        pickle.dump(tfidf, tfidf_file)
+    
+    print("Model training complete and saved to disk.")
+
+def load_model():
+    if not os.path.exists(MODEL_PATH) or not os.path.exists('movies.pkl'):
+        raise FileNotFoundError("Model not found. Please train the model first using a valid dataset.")
+    
+    movies = pd.read_pickle('movies.pkl')
+    with open(MODEL_PATH, 'rb') as model_file:
+        cosine_sim = pickle.load(model_file)
+    
+    return movies, cosine_sim
+
+def recommend_movies_by_title(title):
+    movies, cosine_sim = load_model()
+    
+    if title not in movies['Actor'].values:
+        return f"Movie '{title}' not found in the dataset."
+    
+    idx = movies[movies['Actor'] == title].index[0]
+    
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    
+    sim_indices = [i[0] for i in sim_scores[1:6]]
+    
+    return movies['Actor'].iloc[sim_indices].tolist()
+
+def recommend_movies_by_genre(genre):
+    movies, _ = load_model()
+    
+    filtered_movies = movies[movies['Genre'].str.contains(genre, case=False, na=False)]
+    
+    if filtered_movies.empty:
+        return f"No movies found for the Genre '{genre}'."
+    
+    return filtered_movies[['Actor', 'Genre']]
+
+if __name__ == "__main__":
+    if not os.path.exists(MODEL_PATH):
+        print("Model not found. Training the model...")
+        train_model(DATASET_PATH)
+    
+    while True:
+        print("\nOptions:")
+        print("1. Recommend movies by Actor")
+        print("2. Recommend movies by Genre")
+        print("3. Exit")
+        
+        choice = input("Enter your choice: ")
+        
+        if choice == "1":
+            title = input("Enter the Actor: ")
+            recommendations = recommend_movies_by_title(title)
+            if isinstance(recommendations, str):
+                print(recommendations)
+            else:
+                print("Recommended movies:")
+                for movie in recommendations:
+                    print(f"- {movie}")
+        
+        elif choice == "2":
+            genre = input("Enter the Genre: ")
+            recommendations = recommend_movies_by_genre(genre)
+            if isinstance(recommendations, str):
+                print(recommendations)
+            else:
+                print(f"Movies in the Genre '{genre}':")
+                print(recommendations.to_string(index=False))
+        
+        elif choice == "3":
+            print("Exiting...")
+            break
+        
+        else:
+            print("Invalid choice. Please try again.")
